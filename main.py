@@ -10,34 +10,38 @@ LINE_USER_ID = os.environ["LINE_USER_ID"]
 
 def send_line_message(text):
     url = "https://api.line.me/v2/bot/message/push"
-
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
     }
-
-    payload = {
-        "to": LINE_USER_ID,
-        "messages": [
-            {
-                "type": "text",
-                "text": text,
-            }
-        ],
-    }
-
+    payload = {"to": LINE_USER_ID, "messages": [{"type": "text", "text": text}]}
     response = requests.post(url, headers=headers, json=payload)
-
     print(response.status_code)
     print(response.text)
-
     response.raise_for_status()
 
 
-def get_gold_report():
+def calculate_rsi(close, period=14):
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
 
-    # ใช้ Gold Futures จาก Yahoo Finance
-    gold = yf.Ticker("GC=F").history(period="5d")
+
+def rsi_status(value):
+    if value < 40:
+        return "🔵 Buy Zone"
+    elif value > 70:
+        return "🔴 Overbought"
+    else:
+        return "🟢 Normal"
+
+
+def get_gold_report():
+    gold = yf.Ticker("GC=F").history(period="3mo", interval="1d")
 
     if gold.empty:
         raise ValueError("ไม่สามารถดึงข้อมูล Gold ได้")
@@ -46,43 +50,31 @@ def get_gold_report():
 
     latest = float(close.iloc[-1])
     previous = float(close.iloc[-2])
-
     change = (latest - previous) / previous * 100
 
-    today = datetime.now(
-        ZoneInfo("Asia/Bangkok")
-    ).strftime("%d/%m/%Y")
+    latest_rsi = float(calculate_rsi(close).dropna().iloc[-1])
 
-    message = f"""🥇 Gold Buy Alert
+    today = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%d/%m/%Y")
 
+    return f"""🥇 Gold Buy Alert Test
 ประจำวันที่ {today}
 
 ━━━━━━━━━━━━━━
 
 Gold Futures
+${latest:,.2f}/oz ({change:+.2f}%)
 
-${latest:,.2f}/oz
-
-Change
-
-{change:+.2f}%
+RSI (14)
+{rsi_status(latest_rsi)} ({latest_rsi:.1f})
 
 ━━━━━━━━━━━━━━
 
 System Status
-
-✅ Yahoo Finance Connected
-✅ LINE Connected
-
+✅ Gold price OK
+✅ RSI OK
+✅ LINE OK
 """
-
-    return message
 
 
 if __name__ == "__main__":
-
-    report = get_gold_report()
-
-    print(report)
-
-    send_line_message(report)
+    send_line_message(get_gold_report())
